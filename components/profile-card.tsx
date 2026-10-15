@@ -43,7 +43,7 @@ export function ProfileCard() {
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
       style={{ perspective: "1000px" }}
-      className="relative mx-auto w-full max-w-[21rem] min-[400px]:max-w-[24rem] sm:max-w-[26rem] lg:mx-0 lg:ml-auto"
+      className="relative mx-auto w-full max-w-[16rem] min-[400px]:max-w-[17.5rem] sm:max-w-[18rem] lg:max-w-[18.5rem] lg:mx-0 lg:ml-auto"
     >
       <figure
         style={{
@@ -52,27 +52,27 @@ export function ProfileCard() {
             : "rotateX(0deg) rotateY(0deg) translateY(0px)",
           transformStyle: "preserve-3d",
         }}
-        className="group relative rounded-[1.75rem] sm:rounded-[2rem] border border-line bg-card p-2.5 sm:p-3 shadow-[var(--shadow-card)] transition-transform duration-300 ease-out hover:border-fg/20"
+        className="group relative rounded-[1.5rem] sm:rounded-[1.75rem] border border-line bg-card p-2.5 sm:p-3 shadow-[var(--shadow-card)] transition-transform duration-300 ease-out hover:border-fg/20"
         aria-label={`${profile.fullName} — profile card`}
       >
         {/* Soft cosmic nebula illumination behind the card */}
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute -inset-4 sm:-inset-10 -z-10 rounded-[3rem] opacity-75 blur-2xl sm:blur-3xl transition-opacity duration-500 group-hover:opacity-100"
+          className="pointer-events-none absolute -inset-4 sm:-inset-8 -z-10 rounded-[2.5rem] opacity-75 blur-2xl transition-opacity duration-500 group-hover:opacity-100"
           style={{
             background:
               "radial-gradient(60% 60% at 70% 20%, rgba(139, 92, 246, 0.22), transparent 70%), radial-gradient(50% 50% at 20% 85%, rgba(56, 189, 248, 0.18), transparent 70%)",
           }}
         />
 
-        <div className="relative aspect-[4/4.6] overflow-hidden rounded-[1.5rem] bg-surface">
+        <div className="relative aspect-[4/4.3] overflow-hidden rounded-[1.25rem] sm:rounded-[1.35rem] bg-surface">
           {profile.photo ? (
             <Image
               src={profile.photo}
               alt={profile.photoAlt}
               fill
               priority
-              sizes="(min-width: 1024px) 26rem, 90vw"
+              sizes="(min-width: 1024px) 19rem, 85vw"
               className="object-cover object-top transition-transform duration-700 ease-out group-hover:scale-[1.03]"
             />
           ) : (
@@ -83,7 +83,7 @@ export function ProfileCard() {
           <div
             aria-hidden="true"
             style={{
-              background: `radial-gradient(circle 260px at ${tilt.sheenX}% ${tilt.sheenY}%, rgba(255, 255, 255, 0.12), transparent 70%)`,
+              background: `radial-gradient(circle 240px at ${tilt.sheenX}% ${tilt.sheenY}%, rgba(255, 255, 255, 0.12), transparent 70%)`,
             }}
             className="pointer-events-none absolute inset-0 transition-opacity duration-300"
           />
@@ -91,14 +91,14 @@ export function ProfileCard() {
           {/* Inner vignette for depth */}
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 rounded-[1.5rem] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06),inset_0_-80px_80px_-60px_rgba(0,0,0,0.4)]"
+            className="pointer-events-none absolute inset-0 rounded-[1.25rem] sm:rounded-[1.35rem] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06),inset_0_-80px_80px_-60px_rgba(0,0,0,0.4)]"
           />
         </div>
 
-        <figcaption className="px-3 pt-4 pb-2">
-          <p className="text-[15px] font-semibold tracking-tight">{profile.fullName}</p>
-          <p className="text-sm text-muted">{profile.role}</p>
-          <p className="mt-3.5 inline-flex max-w-full items-center gap-2 rounded-full border border-line bg-fg/[0.03] px-3 py-1.5 text-xs font-medium text-muted">
+        <figcaption className="px-2.5 pt-3.5 pb-2">
+          <p className="text-sm sm:text-[15px] font-semibold tracking-tight">{profile.fullName}</p>
+          <p className="text-xs text-muted">{profile.role}</p>
+          <p className="mt-2.5 inline-flex max-w-full items-center gap-1.5 rounded-full border border-line bg-fg/[0.03] px-2.5 py-1 text-[11px] font-medium text-muted">
             <span className="size-1.5 shrink-0 rounded-full bg-accent-2 animate-pulse" aria-hidden="true" />
             <span className="sr-only">Status: </span>
             <span className="truncate">{profile.status}</span>

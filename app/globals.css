@@ -112,6 +112,16 @@ html.theme-transition *::after {
     padding-inline: 2rem;
   }
 }
+@media (min-width: 1024px) {
+  .container-x {
+    padding-inline: 2.75rem;
+  }
+}
+@media (min-width: 1280px) {
+  .container-x {
+    padding-inline: 3.5rem;
+  }
+}
 
 .section-pad {
   padding-block: 4.5rem;

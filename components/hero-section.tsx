@@ -12,20 +12,20 @@ export function HeroSection() {
     <section
       id="home"
       aria-labelledby="hero-title"
-      className="relative flex min-h-svh items-center overflow-hidden pt-24 pb-14 sm:pt-28 sm:pb-16 md:pt-32 md:pb-20"
+      className="relative flex min-h-svh items-center overflow-hidden pt-20 pb-12 sm:pt-24 sm:pb-14 lg:pt-20 lg:pb-14"
     >
       <div className="hero-glow" aria-hidden="true" />
 
       {/* Subtle cosmic aura behind the headline */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute top-1/4 left-0 -z-10 h-[30rem] w-[30rem] rounded-full bg-gradient-to-tr from-accent/15 via-sky-500/10 to-indigo-500/10 blur-3xl opacity-60"
+        className="pointer-events-none absolute top-1/4 left-0 -z-10 h-[28rem] w-[28rem] rounded-full bg-gradient-to-tr from-accent/15 via-sky-500/10 to-indigo-500/10 blur-3xl opacity-60"
       />
 
-      <div className="container-x relative grid items-center gap-10 sm:gap-14 lg:grid-cols-[1.15fr_0.85fr] lg:gap-12">
+      <div className="container-x relative grid items-center gap-8 sm:gap-12 lg:grid-cols-[1.22fr_0.78fr] lg:gap-10 xl:gap-14">
         <div className="min-w-0">
           <p
-            className="hero-rise mb-4 sm:mb-5 font-mono text-xs font-medium tracking-[0.22em] text-muted"
+            className="hero-rise mb-3 sm:mb-4 font-mono text-xs font-medium tracking-[0.22em] text-muted"
             style={delay(0)}
           >
             {profile.heroGreeting}
@@ -33,7 +33,7 @@ export function HeroSection() {
 
           <h1
             id="hero-title"
-            className="text-[clamp(2.35rem,8vw,5.5rem)] leading-[1.02] font-bold tracking-[-0.04em] text-balance"
+            className="text-[clamp(2.15rem,4.5vw,3.75rem)] leading-[1.04] font-bold tracking-[-0.04em] text-balance"
           >
             <span className="hero-rise block" style={delay(80)}>
               {profile.firstLine}
@@ -44,21 +44,21 @@ export function HeroSection() {
           </h1>
 
           <p
-            className="hero-rise mt-5 sm:mt-6 inline-block border-b border-accent/40 pb-1.5 text-lg font-medium tracking-tight text-accent sm:text-xl md:text-2xl"
+            className="hero-rise mt-4 sm:mt-5 inline-block border-b border-accent/40 pb-1.5 text-base font-medium tracking-tight text-accent sm:text-lg md:text-xl"
             style={delay(300)}
           >
             <RoleTypewriter text={profile.role} />
           </p>
 
           <p
-            className="hero-rise mt-5 sm:mt-7 max-w-xl text-base leading-relaxed text-muted text-pretty md:text-lg"
+            className="hero-rise mt-4 sm:mt-5 max-w-lg text-sm sm:text-base leading-relaxed text-muted text-pretty md:text-[15.5px]"
             style={delay(400)}
           >
             {profile.heroDescription}
           </p>
 
           <div
-            className="hero-rise mt-8 sm:mt-9 flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3"
+            className="hero-rise mt-6 sm:mt-7 flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-3"
             style={delay(500)}
           >
             <LinkButton
@@ -80,7 +80,7 @@ export function HeroSection() {
             </LinkButton>
           </div>
 
-          <div className="hero-rise mt-9" style={delay(600)}>
+          <div className="hero-rise mt-6 sm:mt-7" style={delay(600)}>
             <SocialIcons />
           </div>
         </div>
