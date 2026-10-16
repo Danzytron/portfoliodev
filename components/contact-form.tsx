@@ -1,151 +1,195 @@
 "use client";
 
 import { useId, useState } from "react";
-import { AlertCircle, CheckCircle2, LoaderCircle, Send } from "lucide-react";
+import { AlertCircle, CheckCircle2, LoaderCircle, Mail, Send } from "lucide-react";
 import { validateContact, type ContactErrors, type ContactValues } from "@/lib/validation";
 import { cn } from "@/lib/cn";
 
-type Status = "idle" | "loading" | "success" | "activation" | "error" | "unconfigured";
+type FormStatus = "idle" | "loading" | "success" | "error" | "unconfigured";
 
-const empty: ContactValues = { name: "", email: "", subject: "", message: "" };
+const initialValues: ContactValues = {
+  name: "",
+  email: "",
+  subject: "",
+  message: "",
+};
 
 const inputClass =
   "w-full rounded-2xl border bg-surface/60 px-4 py-3 text-base text-fg placeholder:text-muted/70 transition-colors duration-200 hover:border-fg/25 focus:border-accent focus:outline-none focus-visible:outline-none focus:ring-2 focus:ring-accent/30";
 
-export function ContactForm({ fallbackEmail }: { fallbackEmail: string }) {
+function buildMailtoHref(recipient: string, values: ContactValues): string {
+  const cleanRecipient = recipient.trim() || "rdelarmente0@gmail.com";
+  const cleanSubject = values.subject.trim() || "Portfolio Contact Inquiry";
+
+  const bodyParts: string[] = [];
+  if (values.message.trim()) {
+    bodyParts.push(values.message.trim());
+    bodyParts.push("");
+  }
+  bodyParts.push("---");
+  bodyParts.push(`Sender: ${values.name.trim() || "Visitor"}`);
+  if (values.email.trim()) {
+    bodyParts.push(`Email: ${values.email.trim()}`);
+  }
+
+  const cleanBody = bodyParts.join("\n");
+
+  return `mailto:${encodeURIComponent(cleanRecipient)}?subject=${encodeURIComponent(cleanSubject)}&body=${encodeURIComponent(cleanBody)}`;
+}
+
+export function ContactForm({ fallbackEmail = "rdelarmente0@gmail.com" }: { fallbackEmail?: string }) {
   const uid = useId();
-  const [values, setValues] = useState<ContactValues>(empty);
+  const [values, setValues] = useState<ContactValues>(initialValues);
   const [errors, setErrors] = useState<ContactErrors>({});
   const [touched, setTouched] = useState<Partial<Record<keyof ContactValues, boolean>>>({});
-  const [status, setStatus] = useState<Status>("idle");
+  const [status, setStatus] = useState<FormStatus>("idle");
   const [serverMessage, setServerMessage] = useState("");
   const [honeypot, setHoneypot] = useState("");
 
-  function update(field: keyof ContactValues, value: string) {
+  function updateField(field: keyof ContactValues, value: string) {
     const next = { ...values, [field]: value };
     setValues(next);
-    if (touched[field]) setErrors((prev) => ({ ...prev, [field]: validateContact(next)[field] }));
+    if (touched[field]) {
+      setErrors((prev) => ({ ...prev, [field]: validateContact(next)[field] }));
+    }
   }
 
-  function blur(field: keyof ContactValues) {
+  function handleBlur(field: keyof ContactValues) {
     setTouched((t) => ({ ...t, [field]: true }));
     setErrors((prev) => ({ ...prev, [field]: validateContact(values)[field] }));
   }
 
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (status === "loading") return;
 
-    const found = validateContact(values);
-    setErrors(found);
+    // Validate fields
+    const validationErrors = validateContact(values);
+    setErrors(validationErrors);
     setTouched({ name: true, email: true, subject: true, message: true });
-    if (Object.keys(found).length > 0) {
-      const first = (["name", "email", "subject", "message"] as const).find((k) => found[k]);
-      if (first) document.getElementById(`${uid}-${first}`)?.focus();
+
+    if (Object.keys(validationErrors).length > 0) {
+      const firstInvalidField = (["name", "email", "subject", "message"] as const).find(
+        (key) => validationErrors[key],
+      );
+      if (firstInvalidField) {
+        document.getElementById(`${uid}-${firstInvalidField}`)?.focus();
+      }
       return;
     }
 
     setStatus("loading");
     setServerMessage("");
+
     try {
-      const res = await fetch("/api/contact", {
+      const response = await fetch("/api/contact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...values, website: honeypot }),
       });
-      const data = (await res.json().catch(() => ({}))) as {
+
+      const data = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
         error?: string;
         message?: string;
         errors?: ContactErrors;
-        pendingActivation?: boolean;
       };
 
-      if (res.ok) {
-        if (data.pendingActivation) {
-          setStatus("activation");
-          setServerMessage(
-            data.message ||
-              `A one-time activation link was sent to ${fallbackEmail}. Please click 'Activate Form' in your inbox.`,
-          );
-          return;
-        }
+      if (response.ok && data.ok) {
         setStatus("success");
-        setValues(empty);
+        setServerMessage(
+          data.message || "Your message has been submitted successfully. Thank you for reaching out!",
+        );
+        setValues(initialValues);
         setTouched({});
         setErrors({});
         return;
       }
-      if (res.status === 503 && data.error === "not_configured") {
+
+      // If backend reports email service is not yet configured (503)
+      if (response.status === 503 && data.error === "unconfigured") {
         setStatus("unconfigured");
+        setServerMessage(
+          "Direct message delivery is currently undergoing setup. Please use the button below to send your message directly via your email app.",
+        );
         return;
       }
-      if (res.status === 400 && data.errors) {
+
+      // Validation error from server
+      if (response.status === 400 && data.errors) {
         setErrors(data.errors);
         setStatus("idle");
         return;
       }
-      setServerMessage(data.message || "Something went wrong while sending your message.");
+
+      // General delivery failure: preserve entered values and show friendly message
       setStatus("error");
+      setServerMessage(
+        data.message || "We couldn't send your message right now. Please try again in a moment.",
+      );
     } catch {
-      setServerMessage("Could not reach the server. Check your connection and try again.");
       setStatus("error");
+      setServerMessage("We couldn't send your message right now. Please try again in a moment.");
     }
   }
 
-  const mailtoHref = fallbackEmail
-    ? `mailto:${fallbackEmail}?subject=${encodeURIComponent(values.subject || "Hello from your portfolio")}&body=${encodeURIComponent(
-        `${values.message}\n\n— ${values.name}${values.email ? ` (${values.email})` : ""}`,
-      )}`
-    : null;
+  const mailtoHref = buildMailtoHref(fallbackEmail, values);
 
+  // Success view
   if (status === "success") {
     return (
       <div
         role="status"
-        className="flex min-h-[26rem] flex-col items-center justify-center rounded-3xl border border-line bg-card p-8 text-center shadow-[var(--shadow-card)]"
+        className="flex min-h-[26rem] flex-col items-center justify-center rounded-3xl border border-line bg-card/85 backdrop-blur-sm p-8 text-center shadow-[var(--shadow-card)]"
       >
-        <CheckCircle2 className="mb-5 size-11 text-accent-2" aria-hidden="true" strokeWidth={1.5} />
-        <h3 className="text-2xl font-semibold tracking-tight">Message sent</h3>
-        <p className="mt-2 max-w-sm text-muted">Thanks for reaching out — I&apos;ll get back to you as soon as I can.</p>
+        <div className="mb-5 flex size-14 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400">
+          <CheckCircle2 className="size-8" aria-hidden="true" strokeWidth={2} />
+        </div>
+        <h3 className="text-2xl font-bold tracking-tight text-fg">Message Submitted</h3>
+        <p className="mt-3 max-w-md text-base leading-relaxed text-muted">
+          {serverMessage || "Your message has been submitted successfully. Thank you for reaching out!"}
+        </p>
         <button
           type="button"
-          onClick={() => setStatus("idle")}
-          className="mt-7 min-h-11 rounded-full border border-line px-5 text-sm font-medium transition-colors hover:bg-fg/[0.06]"
+          onClick={() => {
+            setStatus("idle");
+            setServerMessage("");
+          }}
+          className="mt-8 min-h-11 rounded-full border border-line bg-surface/80 px-6 text-sm font-medium text-fg transition-all duration-200 hover:border-accent/40 hover:bg-surface hover:text-accent"
         >
-          Send another message
+          Send Another Message
         </button>
       </div>
     );
   }
 
-  const field = (
+  const renderField = (
     name: keyof ContactValues,
     label: string,
     props: React.InputHTMLAttributes<HTMLInputElement> = {},
   ) => {
-    const id = `${uid}-${name}`;
+    const fieldId = `${uid}-${name}`;
     const err = errors[name];
     return (
       <div>
-        <label htmlFor={id} className="mb-2 block text-sm font-medium">
-          {label} <span className="text-muted" aria-hidden="true">*</span>
+        <label htmlFor={fieldId} className="mb-2 block text-sm font-medium text-fg">
+          {label} <span className="text-accent" aria-hidden="true">*</span>
         </label>
         <input
-          id={id}
+          id={fieldId}
           name={name}
           value={values[name]}
-          onChange={(e) => update(name, e.target.value)}
-          onBlur={() => blur(name)}
+          onChange={(e) => updateField(name, e.target.value)}
+          onBlur={() => handleBlur(name)}
           required
           aria-required="true"
           aria-invalid={err ? true : undefined}
-          aria-describedby={err ? `${id}-error` : undefined}
-          className={cn(inputClass, err ? "border-red-400/70" : "border-line")}
+          aria-describedby={err ? `${fieldId}-error` : undefined}
+          className={cn(inputClass, err ? "border-red-400/80 focus:ring-red-400/30" : "border-line")}
           {...props}
         />
         {err && (
-          <p id={`${id}-error`} role="alert" className="mt-1.5 text-sm text-red-500 dark:text-red-300">
+          <p id={`${fieldId}-error`} role="alert" className="mt-1.5 text-xs text-red-500 dark:text-red-300">
             {err}
           </p>
         )}
@@ -153,129 +197,158 @@ export function ContactForm({ fallbackEmail }: { fallbackEmail: string }) {
     );
   };
 
-  const msgId = `${uid}-message`;
+  const messageFieldId = `${uid}-message`;
 
   return (
     <form
-      onSubmit={onSubmit}
+      onSubmit={handleSubmit}
       noValidate
-      className="space-y-5 rounded-3xl border border-line bg-card p-6 shadow-[var(--shadow-card)] sm:p-8"
+      className="space-y-5 rounded-3xl border border-line bg-card/85 backdrop-blur-sm p-6 shadow-[var(--shadow-card)] sm:p-8"
       aria-label="Contact form"
     >
       <div className="grid gap-5 sm:grid-cols-2">
-        {field("name", "Name", { type: "text", autoComplete: "name", maxLength: 100, placeholder: "Your name" })}
-        {field("email", "Email", { type: "email", autoComplete: "email", inputMode: "email", placeholder: "you@example.com" })}
+        {renderField("name", "Name", {
+          type: "text",
+          autoComplete: "name",
+          maxLength: 100,
+          placeholder: "Your name",
+        })}
+        {renderField("email", "Email", {
+          type: "email",
+          autoComplete: "email",
+          inputMode: "email",
+          placeholder: "you@example.com",
+        })}
       </div>
-      {field("subject", "Subject", { type: "text", maxLength: 150, placeholder: "What's this about?" })}
+
+      {renderField("subject", "Subject", {
+        type: "text",
+        maxLength: 150,
+        placeholder: "What's this about?",
+      })}
 
       <div>
-        <label htmlFor={msgId} className="mb-2 block text-sm font-medium">
-          Message <span className="text-muted" aria-hidden="true">*</span>
+        <label htmlFor={messageFieldId} className="mb-2 block text-sm font-medium text-fg">
+          Message <span className="text-accent" aria-hidden="true">*</span>
         </label>
         <textarea
-          id={msgId}
+          id={messageFieldId}
           name="message"
-          rows={6}
+          rows={5}
           value={values.message}
-          onChange={(e) => update("message", e.target.value)}
-          onBlur={() => blur("message")}
+          onChange={(e) => updateField("message", e.target.value)}
+          onBlur={() => handleBlur("message")}
           required
           aria-required="true"
           maxLength={5000}
           aria-invalid={errors.message ? true : undefined}
-          aria-describedby={errors.message ? `${msgId}-error` : undefined}
-          placeholder="Tell me a little about your idea…"
-          className={cn(inputClass, "resize-y", errors.message ? "border-red-400/70" : "border-line")}
+          aria-describedby={errors.message ? `${messageFieldId}-error` : undefined}
+          placeholder="Tell me a little about your project or idea…"
+          className={cn(
+            inputClass,
+            "resize-y min-h-[120px]",
+            errors.message ? "border-red-400/80 focus:ring-red-400/30" : "border-line",
+          )}
         />
         {errors.message && (
-          <p id={`${msgId}-error`} role="alert" className="mt-1.5 text-sm text-red-500 dark:text-red-300">
+          <p id={`${messageFieldId}-error`} role="alert" className="mt-1.5 text-xs text-red-500 dark:text-red-300">
             {errors.message}
           </p>
         )}
       </div>
 
-      {/* Honeypot: hidden from people and assistive tech, bots tend to fill it. */}
+      {/* Honeypot: hidden from visitors, bots fill it */}
       <div className="absolute -left-[9999px] h-0 w-0 overflow-hidden" aria-hidden="true">
         <label>
           Website
-          <input type="text" tabIndex={-1} autoComplete="off" value={honeypot} onChange={(e) => setHoneypot(e.target.value)} />
+          <input
+            type="text"
+            tabIndex={-1}
+            autoComplete="off"
+            value={honeypot}
+            onChange={(e) => setHoneypot(e.target.value)}
+          />
         </label>
       </div>
 
+      {/* Status Notifications */}
       <div aria-live="polite">
-        {status === "activation" && (
-          <div className="rounded-2xl border border-accent/40 bg-accent/10 p-5 text-sm leading-relaxed" role="status">
-            <p className="font-semibold text-fg">One-Time Activation Required</p>
-            <p className="mt-1 text-muted">
-              {serverMessage || `A confirmation email was sent to ${fallbackEmail}. Please open your inbox and click "Activate Form" once to enable direct inbox delivery.`}
-            </p>
-            {mailtoHref && (
-              <div className="mt-3">
-                <a
-                  href={mailtoHref}
-                  className="inline-flex min-h-11 items-center rounded-full border border-line bg-card px-4 font-medium transition-colors hover:bg-fg/[0.07]"
-                >
-                  Send this message via email app
-                </a>
-              </div>
-            )}
-          </div>
-        )}
         {status === "error" && (
-          <div className="flex flex-col gap-3 rounded-2xl border border-red-400/40 bg-red-500/10 p-4 text-sm" role="alert">
+          <div
+            className="flex flex-col gap-3.5 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm leading-relaxed"
+            role="alert"
+          >
             <div className="flex items-start gap-3">
-              <AlertCircle className="mt-0.5 size-4 shrink-0 text-red-500 dark:text-red-300" aria-hidden="true" />
-              <p>{serverMessage}</p>
+              <AlertCircle className="mt-0.5 size-4.5 shrink-0 text-red-500 dark:text-red-300" aria-hidden="true" />
+              <p className="text-fg">{serverMessage || "We couldn't send your message right now. Please try again in a moment."}</p>
             </div>
-            {mailtoHref && (
-              <div>
-                <a
-                  href={mailtoHref}
-                  className="inline-flex min-h-10 items-center rounded-full border border-line bg-card px-4 text-xs font-medium transition-colors hover:bg-fg/[0.07]"
-                >
-                  Send using your email app instead
-                </a>
-              </div>
-            )}
-          </div>
-        )}
-        {status === "unconfigured" && (
-          <div className="rounded-2xl border border-line bg-fg/[0.04] p-4 text-sm leading-relaxed" role="status">
-            <p className="font-medium">The contact form isn&apos;t connected to an email service yet.</p>
-            <p className="mt-1 text-muted">
-              {mailtoHref
-                ? "Your message has not been sent. You can send it from your own email app instead:"
-                : "Your message has not been sent. Please use one of the direct contact links instead."}
-            </p>
-            {mailtoHref && (
+            <div className="pt-1 flex flex-wrap items-center gap-3">
               <a
                 href={mailtoHref}
-                className="mt-3 inline-flex min-h-11 items-center rounded-full border border-line px-4 font-medium transition-colors hover:bg-fg/[0.07]"
+                className="inline-flex min-h-10 items-center gap-2 rounded-full border border-line bg-card px-4 text-xs font-semibold text-fg transition-all hover:border-accent/40 hover:bg-surface hover:text-accent shadow-sm"
               >
-                Open in my email app
+                <Mail className="size-3.5 text-accent" aria-hidden="true" />
+                Open Email App
               </a>
-            )}
+              <span className="text-xs text-muted">Send your entered message directly via your email client.</span>
+            </div>
+          </div>
+        )}
+
+        {status === "unconfigured" && (
+          <div
+            className="flex flex-col gap-3.5 rounded-2xl border border-line bg-surface/80 p-4 text-sm leading-relaxed"
+            role="status"
+          >
+            <p className="text-fg font-medium">Direct message delivery is currently unavailable.</p>
+            <p className="text-xs text-muted">
+              You can send your message directly to <strong className="text-fg">{fallbackEmail}</strong> using your email app:
+            </p>
+            <div>
+              <a
+                href={mailtoHref}
+                className="inline-flex min-h-10 items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-5 text-xs font-semibold text-accent transition-colors hover:bg-accent/20"
+              >
+                <Mail className="size-3.5" aria-hidden="true" />
+                Open Email App
+              </a>
+            </div>
           </div>
         )}
       </div>
 
-      <button
-        type="submit"
-        disabled={status === "loading"}
-        className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-fg px-6 text-[15px] font-medium text-bg transition-all duration-300 hover:-translate-y-px hover:opacity-90 disabled:cursor-wait disabled:opacity-70 disabled:hover:translate-y-0 sm:w-auto"
-      >
-        {status === "loading" ? (
-          <>
-            <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
-            Sending…
-          </>
-        ) : (
-          <>
-            Send Message
-            <Send className="size-4" aria-hidden="true" />
-          </>
-        )}
-      </button>
+      {/* Submit Button & Direct Email Fallback */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 pt-2">
+        <button
+          type="submit"
+          disabled={status === "loading"}
+          className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-fg px-7 text-[15px] font-semibold text-bg transition-all duration-300 hover:-translate-y-px hover:opacity-90 disabled:cursor-wait disabled:opacity-70 disabled:hover:translate-y-0"
+        >
+          {status === "loading" ? (
+            <>
+              <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+              Sending…
+            </>
+          ) : (
+            <>
+              Send Message
+              <Send className="size-4" aria-hidden="true" />
+            </>
+          )}
+        </button>
+
+        {/* Functional Email Fallback link always accessible */}
+        <div className="text-center sm:text-right">
+          <a
+            href={mailtoHref}
+            className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-accent transition-colors py-1"
+            title="Open your default email client with your message pre-filled"
+          >
+            <Mail className="size-3.5" aria-hidden="true" />
+            <span>Open Email App</span>
+          </a>
+        </div>
+      </div>
     </form>
   );
 }

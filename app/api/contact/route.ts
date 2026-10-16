@@ -1,154 +1,174 @@
 import { NextResponse } from "next/server";
 import { validateContact, type ContactValues } from "@/lib/validation";
-import { socialLinks } from "@/data/social-links";
+import { personalDetails } from "@/data/profile";
 
 export const runtime = "nodejs";
 
 /**
- * Contact endpoint. Emails are delivered to the recipient address using
- * Resend (if RESEND_API_KEY is configured) or FormSubmit (free direct delivery).
+ * Contact Form API Route
+ *
+ * Secure server-side email delivery handler using Resend.
+ * - Prevents email header injection by sanitizing headers.
+ * - Validates input bounds and formats.
+ * - Enforces server-side rate limiting per IP.
+ * - Sets the visitor's address as reply-to so replies go directly to the visitor.
+ * - Safely logs errors without leaking API keys or secrets.
  */
 
-// Very small in-memory rate limit (per server instance) to blunt basic abuse.
+// In-memory rate limiting: max 5 requests per 10 minutes per IP
 const hits = new Map<string, number[]>();
 const WINDOW_MS = 10 * 60 * 1000;
 const MAX_HITS = 5;
 
-function limited(ip: string) {
+function isRateLimited(ip: string): boolean {
   const now = Date.now();
-  const recent = (hits.get(ip) ?? []).filter((t) => now - t < WINDOW_MS);
+  const recent = (hits.get(ip) ?? []).filter((timestamp) => now - timestamp < WINDOW_MS);
   recent.push(now);
   hits.set(ip, recent);
   return recent.length > MAX_HITS;
 }
 
-function escapeHtml(s: string) {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+/** Sanitize input strings for email headers to prevent header injection */
+function sanitizeHeader(input: string): string {
+  return input.replace(/[\r\n\t]/g, " ").trim();
+}
+
+/** HTML entity escaping to prevent XSS / markup injection */
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  }[c]!));
 }
 
 export async function POST(request: Request) {
   let body: Partial<ContactValues> & { website?: string };
+
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "bad_request", message: "Invalid request." }, { status: 400 });
-  }
-
-  // Honeypot filled → silently accept so bots learn nothing.
-  if (typeof body.website === "string" && body.website.trim() !== "") {
-    return NextResponse.json({ ok: true });
-  }
-
-  const values: ContactValues = {
-    name: String(body.name ?? ""),
-    email: String(body.email ?? ""),
-    subject: String(body.subject ?? ""),
-    message: String(body.message ?? ""),
-  };
-  const errors = validateContact(values);
-  if (Object.keys(errors).length > 0) {
-    return NextResponse.json({ error: "validation", errors }, { status: 400 });
-  }
-
-  const apiKey = process.env.RESEND_API_KEY;
-  const to = process.env.CONTACT_TO_EMAIL || socialLinks.email || "rdelarmente0@gmail.com";
-  if (!to) {
-    return NextResponse.json({ error: "not_configured" }, { status: 503 });
-  }
-
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  if (limited(ip)) {
     return NextResponse.json(
-      { error: "rate_limited", message: "Too many messages. Please try again in a few minutes." },
+      { error: "bad_request", message: "Invalid request payload." },
+      { status: 400 },
+    );
+  }
+
+  // Honeypot trap: if filled by a bot, silently return success so bots learn nothing
+  if (typeof body.website === "string" && body.website.trim() !== "") {
+    return NextResponse.json({ ok: true, message: "Your message has been submitted successfully. Thank you for reaching out!" });
+  }
+
+  // Extract and trim form values
+  const values: ContactValues = {
+    name: String(body.name ?? "").trim(),
+    email: String(body.email ?? "").trim(),
+    subject: String(body.subject ?? "").trim(),
+    message: String(body.message ?? "").trim(),
+  };
+
+  // Validate form fields
+  const validationErrors = validateContact(values);
+  if (Object.keys(validationErrors).length > 0) {
+    return NextResponse.json(
+      { error: "validation", errors: validationErrors },
+      { status: 400 },
+    );
+  }
+
+  // Check rate limits
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  const ip = forwardedFor ? forwardedFor.split(",")[0].trim() : "unknown";
+
+  if (isRateLimited(ip)) {
+    return NextResponse.json(
+      {
+        error: "rate_limited",
+        message: "Too many messages sent. Please wait a few minutes before trying again.",
+      },
       { status: 429 },
     );
   }
 
-  const v = {
-    name: values.name.trim(),
-    email: values.email.trim(),
-    subject: values.subject.trim(),
-    message: values.message.trim(),
-  };
+  // Recipient is always Roldan Jr. Delarmente
+  const recipientEmail = process.env.CONTACT_TO_EMAIL || personalDetails.email || "rdelarmente0@gmail.com";
+  const apiKey = process.env.RESEND_API_KEY?.trim();
 
-  // If Resend API key is configured, use Resend
-  if (apiKey) {
-    try {
-      const res = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          from: process.env.CONTACT_FROM_EMAIL || "Portfolio <onboarding@resend.dev>",
-          to: [to],
-          reply_to: v.email,
-          subject: `[Portfolio] ${v.subject}`,
-          text: `From: ${v.name} <${v.email}>\n\n${v.message}`,
-          html: `<p><strong>From:</strong> ${escapeHtml(v.name)} &lt;${escapeHtml(v.email)}&gt;</p><p style="white-space:pre-wrap">${escapeHtml(v.message)}</p>`,
-        }),
-      });
-      if (!res.ok) {
-        console.error("Resend error", res.status, await res.text().catch(() => ""));
-        return NextResponse.json(
-          { error: "send_failed", message: "The email service rejected the message. Please try again later." },
-          { status: 502 },
-        );
-      }
-      return NextResponse.json({ ok: true });
-    } catch (err) {
-      console.error("Contact send failed via Resend", err);
-      return NextResponse.json(
-        { error: "send_failed", message: "Could not send your message right now. Please try again later." },
-        { status: 502 },
-      );
-    }
+  // If no email delivery service key is configured, return a clear 503 so frontend displays fallback
+  if (!apiKey) {
+    return NextResponse.json(
+      {
+        error: "unconfigured",
+        message: "Email delivery service is currently not configured. Please use your email app.",
+      },
+      { status: 503 },
+    );
   }
 
-  // Fallback: Deliver directly to user's inbox using FormSubmit
+  const senderName = sanitizeHeader(values.name);
+  const senderEmail = sanitizeHeader(values.email);
+  const cleanSubject = sanitizeHeader(values.subject);
+  const fromEmail = process.env.CONTACT_FROM_EMAIL || "Portfolio Contact <onboarding@resend.dev>";
+
   try {
-    const origin =
-      request.headers.get("origin") || request.headers.get("referer") || "https://roldandelarmente.dev";
-    const res = await fetch(`https://formsubmit.co/ajax/${encodeURIComponent(to)}`, {
+    const resendResponse = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        Accept: "application/json",
-        Referer: origin,
       },
       body: JSON.stringify({
-        name: v.name,
-        email: v.email,
-        _subject: `[Portfolio Contact] ${v.subject}`,
-        message: v.message,
-        _captcha: "false",
-        _template: "table",
+        from: fromEmail,
+        to: [recipientEmail],
+        reply_to: senderEmail,
+        subject: `[Portfolio Contact] ${cleanSubject}`,
+        text: `New contact form submission from your portfolio website:\n\nName: ${senderName}\nEmail: ${senderEmail}\nSubject: ${cleanSubject}\n\nMessage:\n${values.message}`,
+        html: `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #eaeaea; border-radius: 12px; background: #ffffff; color: #1a1a1a;">
+            <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 20px; color: #111111; border-bottom: 1px solid #f0f0f0; padding-bottom: 12px;">
+              New Portfolio Contact Message
+            </h2>
+            <div style="margin-bottom: 16px;">
+              <p style="margin: 4px 0; font-size: 14px; color: #666666;"><strong>From:</strong> ${escapeHtml(senderName)} (&lt;${escapeHtml(senderEmail)}&gt;)</p>
+              <p style="margin: 4px 0; font-size: 14px; color: #666666;"><strong>Subject:</strong> ${escapeHtml(cleanSubject)}</p>
+            </div>
+            <div style="background: #f9f9fb; border-radius: 8px; padding: 16px; margin-top: 16px;">
+              <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #222222; white-space: pre-wrap;">${escapeHtml(values.message)}</p>
+            </div>
+            <p style="margin-top: 24px; font-size: 12px; color: #999999; border-top: 1px solid #f0f0f0; padding-top: 12px;">
+              You can reply directly to this email to respond to ${escapeHtml(senderName)} at ${escapeHtml(senderEmail)}.
+            </p>
+          </div>
+        `,
       }),
     });
 
-    const data = (await res.json().catch(() => ({}))) as {
-      success?: string | boolean;
-      message?: string;
-    };
+    if (!resendResponse.ok) {
+      const errorText = await resendResponse.text().catch(() => "");
+      console.error("[Contact API] Resend error status:", resendResponse.status, errorText);
 
-    if (typeof data.message === "string" && data.message.toLowerCase().includes("activ")) {
-      return NextResponse.json({
-        ok: true,
-        pendingActivation: true,
-        message: `FormSubmit sent a one-time activation link to ${to}. Please click 'Activate Form' in your inbox to enable direct inbox delivery.`,
-      });
+      return NextResponse.json(
+        {
+          error: "send_failed",
+          message: "We couldn't send your message right now. Please try again in a moment.",
+        },
+        { status: 502 },
+      );
     }
 
-    if (data.success === "true" || data.success === true || res.ok) {
-      return NextResponse.json({ ok: true });
-    }
-
-    return NextResponse.json(
-      { error: "send_failed", message: data.message || "Failed to deliver message. Please use your email app instead." },
-      { status: 502 },
-    );
+    return NextResponse.json({
+      ok: true,
+      message: "Your message has been submitted successfully. Thank you for reaching out!",
+    });
   } catch (err) {
-    console.error("Contact send failed via FormSubmit", err);
+    console.error("[Contact API] Unexpected error delivering email:", err);
     return NextResponse.json(
-      { error: "send_failed", message: "Could not deliver your message right now. Please use your email app instead." },
+      {
+        error: "send_failed",
+        message: "We couldn't send your message right now. Please try again in a moment.",
+      },
       { status: 502 },
     );
   }
